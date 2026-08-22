@@ -1,113 +1,95 @@
 """
-New Axial Age — Minimal Four-Wheel Prototype (v0.2)
--------------------------------------------------
-Design goals (for EV sandbox first version):
-1. Explicit mapping to the four wheels
-2. Transparent parameters with one-line rationale
-3. Simple demonstration-effect (not pure mean-field)
-4. Two ready-made scenarios for comparison
-5. Easy to wrap with Streamlit later
-
-This is a heuristic toy, not a calibrated forecast model.
+New Axial Age — Minimal Four-Wheel Prototype (Streamlit UI)
+Heuristic toy for exploring thermodynamic + institutional dynamics.
+Not a calibrated forecast model.
 """
 
 import numpy as np
 import matplotlib.pyplot as plt
+import streamlit as st
 from dataclasses import dataclass, field
 from typing import List, Dict
 
 
 # -------------------------------------------------
-# 1. Parameters (four-wheel mapping + short rationale)
+# Parameters
 # -------------------------------------------------
 @dataclass
 class Params:
-    # --- Wheel 1: Thermodynamic / Energy ---
-    initial_Js: float = 16.0          # initial extractable free-energy stock
-    depletion_rate: float = 0.004     # base stock decline per step (direct deadline pressure)
-    min_complexity_cost: float = 0.25 # fixed cost to keep current social complexity
+    # Wheel 1: Energy
+    initial_Js: float = 16.0
+    depletion_rate: float = 0.004
+    min_complexity_cost: float = 0.25
 
-    # --- Wheel 2: Dopamine / behavioral ---
-    E_crit: float = 3.0               # energy level where survival prior starts dominating
-    k_gamma: float = 1.1              # steepness of energy → cooperation propensity
-    baseline_reset: float = 0.015     # mild upward drift in aspiration when energy is high
+    # Wheel 2: Dopamine / behavior
+    E_crit: float = 3.0
+    k_gamma: float = 1.1
+    baseline_reset: float = 0.015
 
-    # --- Wheel 3: Supervision / rent-seeking ---
-    base_supervision_friction: float = 0.08  # Re: share lost to monitoring & leakage
-    supervision_chain_effect: float = 0.25   # how fast friction rises with elite extraction
-    demo_sensitivity: float = 0.35    # how strongly neighbors' extraction spreads
+    # Wheel 3: Supervision / rent-seeking
+    base_supervision_friction: float = 0.08
+    supervision_chain_effect: float = 0.25
+    demo_sensitivity: float = 0.35
 
-    # --- Wheel 4: Jevons / technology ---
-    efficiency_gain: float = 0.0      # exogenous efficiency improvement per step
-    reinvestment_ratio: float = 0.7   # fraction of efficiency gain reinvested into higher throughput
+    # Wheel 4: Jevons
+    efficiency_gain: float = 0.0
+    reinvestment_ratio: float = 0.7
 
-    # --- Population & simulation ---
-    n_civilians: int = 400
-    n_elites: int = 50
+    # Population & run
+    n_civilians: int = 300
+    n_elites: int = 40
     steps: int = 30
-    elite_share: float = 0.48         # institutional capture of effective energy
+    elite_share: float = 0.48
     seed: int = 42
 
 
 # -------------------------------------------------
-# 2. Agent
+# Agent & Model
 # -------------------------------------------------
 @dataclass
 class Agent:
     id: int
-    role: str                  # "civilian" | "elite"
+    role: str
     energy: float
-    pm: float                  # resilience / prior strength (higher → slower collapse)
-    gamma: float = 1.0         # cooperation propensity (0–1)
-    strategy: str = "cooperate"  # "cooperate" | "extract"
-    # local neighborhood indices (simple ring for demo effect)
+    pm: float
+    gamma: float = 1.0
+    strategy: str = "cooperate"
     neighbors: List[int] = field(default_factory=list)
 
     def update_gamma(self, p: Params, neighbor_extract_rate: float):
-        """
-        Energy pressure + demonstration effect → cooperation propensity.
-        """
-        # logistic response to own energy
         base = 1.0 / (1.0 + np.exp(-p.k_gamma * (self.energy - p.E_crit)))
-        # resilience bonus
         resilience = 0.04 * (self.pm - 6.0)
-        # demonstration penalty: more extracting neighbors → lower gamma
         demo_penalty = p.demo_sensitivity * neighbor_extract_rate
-
-        self.gamma = np.clip(base + resilience - demo_penalty, 0.0, 1.0)
-
-        # role-specific threshold (elites switch a bit later)
+        self.gamma = float(np.clip(base + resilience - demo_penalty, 0.0, 1.0))
         thresh = 0.40 if self.role == "elite" else 0.33
         self.strategy = "extract" if self.gamma < thresh else "cooperate"
 
 
-# -------------------------------------------------
-# 3. Model
-# -------------------------------------------------
 class FourWheelModel:
     def __init__(self, p: Params):
         self.p = p
         rng = np.random.default_rng(p.seed)
-
         self.agents: List[Agent] = []
-        # civilians
-        for i in range(p.n_civilians):
-            self.agents.append(Agent(
-                id=i,
-                role="civilian",
-                energy=rng.normal(8.2, 0.9),
-                pm=rng.normal(6.0, 0.7),
-            ))
-        # elites
-        for i in range(p.n_elites):
-            self.agents.append(Agent(
-                id=p.n_civilians + i,
-                role="elite",
-                energy=rng.normal(13.5, 1.1),
-                pm=rng.normal(5.5, 0.6),
-            ))
 
-        # simple ring neighborhood (keeps demo-effect local, still very light)
+        for i in range(p.n_civilians):
+            self.agents.append(
+                Agent(
+                    id=i,
+                    role="civilian",
+                    energy=float(rng.normal(8.2, 0.9)),
+                    pm=float(rng.normal(6.0, 0.7)),
+                )
+            )
+        for i in range(p.n_elites):
+            self.agents.append(
+                Agent(
+                    id=p.n_civilians + i,
+                    role="elite",
+                    energy=float(rng.normal(13.5, 1.1)),
+                    pm=float(rng.normal(5.5, 0.6)),
+                )
+            )
+
         n = len(self.agents)
         for i, a in enumerate(self.agents):
             a.neighbors = [(i - 1) % n, (i + 1) % n, (i + 2) % n]
@@ -119,21 +101,16 @@ class FourWheelModel:
         if not agent.neighbors:
             return 0.0
         extracting = sum(
-            1 for j in agent.neighbors
-            if self.agents[j].strategy == "extract"
+            1 for j in agent.neighbors if self.agents[j].strategy == "extract"
         )
         return extracting / len(agent.neighbors)
 
     def step(self, t: int):
         p = self.p
-
-        # ----- Wheel 1: thermodynamic depletion -----
         self.Js = max(1.5, self.Js * (1.0 - p.depletion_rate))
 
-        # ----- Wheel 4: Jevons (efficiency → higher throughput) -----
-        # efficiency gain is partly reinvested, so effective draw on stock rises
         jevons_draw = 1.0 + p.efficiency_gain * p.reinvestment_ratio * t * 0.01
-        current_Js = self.Js / jevons_draw
+        current_Js = self.Js / max(jevons_draw, 1e-6)
 
         elites = [a for a in self.agents if a.role == "elite"]
         civilians = [a for a in self.agents if a.role == "civilian"]
@@ -141,17 +118,14 @@ class FourWheelModel:
             sum(1 for e in elites if e.strategy == "extract") / max(1, len(elites))
         )
 
-        # ----- Wheel 3: supervision friction rises with extraction -----
         Re = min(
             0.65,
             p.base_supervision_friction
             + p.supervision_chain_effect * elite_extract_ratio
             + 0.006 * t,
         )
-
         J_eff = max(0.5, current_Js * (1.0 - Re) - p.min_complexity_cost)
 
-        # distribution
         energy_elites = J_eff * p.elite_share
         energy_civ = J_eff * (1.0 - p.elite_share)
 
@@ -164,7 +138,6 @@ class FourWheelModel:
             for c in civilians:
                 c.energy = c.energy * 0.75 + base_c * 0.25
 
-        # extraction / mutual predation (simple transfer with friction)
         extractors = [a for a in self.agents if a.strategy == "extract"]
         if extractors and civilians:
             total_stolen = 0.0
@@ -172,118 +145,184 @@ class FourWheelModel:
                 rate = 0.045 if ext.role == "elite" else 0.022
                 steal = min(0.25, ext.energy * rate)
                 total_stolen += steal
-                ext.energy += steal * 0.80          # friction loss
+                ext.energy += steal * 0.80
             per_civ = total_stolen / len(civilians)
             for c in civilians:
                 c.energy = max(0.3, c.energy - per_civ)
 
-        # ----- Wheel 2 + demo effect: update gamma & strategy -----
         for a in self.agents:
-            neigh_rate = self._neighbor_extract_rate(a)
-            a.update_gamma(p, neigh_rate)
-            # mild aspiration drift when energy high (baseline reset sketch)
+            a.update_gamma(p, self._neighbor_extract_rate(a))
             if a.energy > p.E_crit + 2.0:
-                a.pm = np.clip(a.pm + p.baseline_reset, 0.5, 14.0)
+                a.pm = float(np.clip(a.pm + p.baseline_reset, 0.5, 14.0))
             else:
-                a.pm = np.clip(a.pm - 0.01, 0.5, 14.0)
+                a.pm = float(np.clip(a.pm - 0.01, 0.5, 14.0))
 
-        # record
         mean_energy = float(np.mean([a.energy for a in self.agents]))
         mean_gamma = float(np.mean([a.gamma for a in self.agents]))
         n_extract = sum(1 for a in self.agents if a.strategy == "extract")
         elite_coop = sum(1 for e in elites if e.strategy == "cooperate")
         civ_coop = sum(1 for c in civilians if c.strategy == "cooperate")
 
-        self.history.append({
-            "t": t,
-            "Js": self.Js,
-            "J_eff": J_eff,
-            "Re": Re,
-            "mean_energy": mean_energy,
-            "mean_gamma": mean_gamma,
-            "extractors": n_extract,
-            "elite_coop": elite_coop,
-            "civ_coop": civ_coop,
-            "elite_extract_ratio": elite_extract_ratio,
-        })
+        self.history.append(
+            {
+                "t": t,
+                "Js": self.Js,
+                "J_eff": J_eff,
+                "Re": Re,
+                "mean_energy": mean_energy,
+                "mean_gamma": mean_gamma,
+                "extractors": n_extract,
+                "elite_coop": elite_coop,
+                "civ_coop": civ_coop,
+                "elite_extract_ratio": elite_extract_ratio,
+            }
+        )
 
-    def run(self):
+    def run(self) -> List[Dict]:
+        self.history = []
+        self.Js = self.p.initial_Js
         for t in range(1, self.p.steps + 1):
             self.step(t)
         return self.history
 
 
 # -------------------------------------------------
-# 4. Scenarios
+# Streamlit UI
 # -------------------------------------------------
-def scenario_low_friction() -> Params:
-    """Lower supervision friction → slower rise of rent-seeking."""
-    p = Params()
+st.set_page_config(
+    page_title="New Axial Age — Four-Wheel Sandbox",
+    page_icon="⚙️",
+    layout="wide",
+)
+
+st.title("New Axial Age — Four-Wheel Sandbox")
+st.caption(
+    "Heuristic toy mapped to four constraints: energy bill, dopamine-driven acceleration, "
+    "supervision/rent-seeking friction, and Jevons reinvestment. "
+    "**Not a forecast.** Adjust parameters and compare phase-transition speed."
+)
+
+with st.sidebar:
+    st.header("Parameters")
+
+    st.subheader("Wheel 1 — Energy")
+    initial_Js = st.slider("Initial free-energy stock (Js)", 8.0, 24.0, 16.0, 0.5)
+    depletion_rate = st.slider("Depletion rate per step", 0.001, 0.015, 0.004, 0.001)
+    min_complexity_cost = st.slider("Min complexity cost", 0.05, 0.60, 0.25, 0.05)
+
+    st.subheader("Wheel 2 — Behavior")
+    E_crit = st.slider("Critical energy (E_crit)", 1.5, 6.0, 3.0, 0.1)
+    demo_sensitivity = st.slider("Demonstration sensitivity", 0.0, 0.8, 0.35, 0.05)
+
+    st.subheader("Wheel 3 — Supervision")
+    base_friction = st.slider("Base supervision friction (Re)", 0.02, 0.25, 0.08, 0.01)
+    chain_effect = st.slider("Supervision chain effect", 0.05, 0.50, 0.25, 0.05)
+
+    st.subheader("Wheel 4 — Jevons")
+    efficiency_gain = st.slider("Efficiency gain intensity", 0.0, 1.5, 0.0, 0.1)
+    reinvestment_ratio = st.slider("Reinvestment ratio", 0.0, 1.0, 0.7, 0.05)
+
+    st.subheader("Run")
+    steps = st.slider("Time steps", 15, 60, 30, 5)
+    seed = st.number_input("Random seed", min_value=0, max_value=9999, value=42, step=1)
+
+    preset = st.selectbox(
+        "Preset scenario",
+        [
+            "Custom (use sliders)",
+            "Low supervision friction",
+            "High supervision friction",
+            "Strong Jevons reinvestment",
+        ],
+    )
+
+# Apply presets (override relevant sliders)
+p = Params(
+    initial_Js=initial_Js,
+    depletion_rate=depletion_rate,
+    min_complexity_cost=min_complexity_cost,
+    E_crit=E_crit,
+    demo_sensitivity=demo_sensitivity,
+    base_supervision_friction=base_friction,
+    supervision_chain_effect=chain_effect,
+    efficiency_gain=efficiency_gain,
+    reinvestment_ratio=reinvestment_ratio,
+    steps=steps,
+    seed=int(seed),
+    n_civilians=300,
+    n_elites=40,
+)
+
+if preset == "Low supervision friction":
     p.base_supervision_friction = 0.05
     p.supervision_chain_effect = 0.12
-    p.seed = 1
-    return p
-
-
-def scenario_high_friction() -> Params:
-    """Higher supervision friction + stronger chain effect → faster extraction cascade."""
-    p = Params()
+    p.demo_sensitivity = 0.25
+elif preset == "High supervision friction":
     p.base_supervision_friction = 0.12
     p.supervision_chain_effect = 0.35
     p.demo_sensitivity = 0.45
-    p.seed = 1
-    return p
+elif preset == "Strong Jevons reinvestment":
+    p.efficiency_gain = 1.0
+    p.reinvestment_ratio = 0.9
 
+with st.spinner("Running simulation..."):
+    hist = FourWheelModel(p).run()
 
-def scenario_with_jevons() -> Params:
-    """Mild efficiency gains that are mostly reinvested (Jevons)."""
-    p = Params()
-    p.efficiency_gain = 0.8
-    p.reinvestment_ratio = 0.85
-    p.seed = 1
-    return p
+# Metrics at final step
+last = hist[-1]
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Final J_eff", f"{last['J_eff']:.3f}")
+c2.metric("Final Re (friction)", f"{last['Re']:.3f}")
+c3.metric("Mean γ (cooperation)", f"{last['mean_gamma']:.3f}")
+c4.metric("Extractors", f"{last['extractors']}")
 
+# Charts
+ts = [h["t"] for h in hist]
+j_eff = [h["J_eff"] for h in hist]
+re = [h["Re"] for h in hist]
+gamma = [h["mean_gamma"] for h in hist]
+extractors = [h["extractors"] for h in hist]
 
-# -------------------------------------------------
-# 5. Run & plot comparison
-# -------------------------------------------------
-def run_and_collect(p: Params):
-    model = FourWheelModel(p)
-    hist = model.run()
-    return hist
+fig, axes = plt.subplots(2, 2, figsize=(10, 6), sharex=True)
+axes[0, 0].plot(ts, j_eff, color="C0", lw=2)
+axes[0, 0].set_ylabel("J_eff")
+axes[0, 0].set_title("Effective free energy")
+axes[0, 0].grid(True, alpha=0.3)
 
+axes[0, 1].plot(ts, re, color="C3", lw=2)
+axes[0, 1].set_ylabel("Re")
+axes[0, 1].set_title("Supervision friction")
+axes[0, 1].grid(True, alpha=0.3)
 
-if __name__ == "__main__":
-    scenarios = {
-        "Low supervision friction": scenario_low_friction(),
-        "High supervision friction": scenario_high_friction(),
-        "With Jevons reinvestment": scenario_with_jevons(),
-    }
+axes[1, 0].plot(ts, gamma, color="C2", lw=2)
+axes[1, 0].set_ylabel("Mean γ")
+axes[1, 0].set_xlabel("Time step")
+axes[1, 0].set_title("Cooperation propensity")
+axes[1, 0].grid(True, alpha=0.3)
 
-    results = {}
-    for name, p in scenarios.items():
-        results[name] = run_and_collect(p)
+axes[1, 1].plot(ts, extractors, color="C1", lw=2)
+axes[1, 1].set_ylabel("Count")
+axes[1, 1].set_xlabel("Time step")
+axes[1, 1].set_title("Extractors")
+axes[1, 1].grid(True, alpha=0.3)
 
-    # print last-step summary
-    print(f"{'Scenario':<28} | {'J_eff':>7} | {'Re':>6} | {'Meanγ':>7} | {'Extractors':>10}")
-    print("-" * 70)
-    for name, hist in results.items():
-        last = hist[-1]
-        print(
-            f"{name:<28} | {last['J_eff']:7.3f} | {last['Re']:6.3f} | "
-            f"{last['mean_gamma']:7.3f} | {last['extractors']:10d}"
-        )
+fig.tight_layout()
+st.pyplot(fig)
 
-    # plot mean_gamma trajectories
-    plt.figure(figsize=(10, 5))
-    for name, hist in results.items():
-        ts = [h["t"] for h in hist]
-        gs = [h["mean_gamma"] for h in hist]
-        plt.plot(ts, gs, label=name, linewidth=2)
-    plt.xlabel("Time step")
-    plt.ylabel("Mean cooperation propensity (γ)")
-    plt.title("New Axial Age prototype — scenario comparison")
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    plt.show()
+with st.expander("How to read this"):
+    st.markdown(
+        """
+- **J_eff ↓**: usable free energy after friction and complexity cost.
+- **Re ↑**: supervision / leakage friction rises as elite extraction spreads.
+- **Mean γ ↓**: average cooperation propensity; collapse toward extraction.
+- **Extractors ↑**: agents switching to extractive strategy (boundary contraction sketch).
+
+Presets only change a few institutional / technology levers so you can see
+whether higher friction or stronger Jevons-style reinvestment speeds or delays
+the cooperation drop — within this toy model only.
+"""
+    )
+
+st.caption(
+    "New Axial Age sandbox v0.2 — open heuristic prototype for discussion, not policy advice."
+)
