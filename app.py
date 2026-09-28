@@ -22,7 +22,7 @@ from typing import List, Dict
 # -------------------------------------------------
 @dataclass
 class Params:
-    # --- Wheel 1: Thermodynamic / Energy ---
+    # --- Wheel 1: Thermodynamic / Energy ---
     initial_Js: float = 16.0          # initial extractable free-energy stock
     depletion_rate: float = 0.004     # base stock decline per step (direct deadline pressure)
     min_complexity_cost: float = 0.25 # fixed cost to keep current social complexity
